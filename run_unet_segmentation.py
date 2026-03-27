@@ -390,6 +390,7 @@ def run_single_dataset(args, dataset_name: str, device: torch.device) -> None:
     history = []
     best_val_dsc = -1.0
     best_epoch = -1
+    epochs_without_improvement = 0
 
     epoch_iter = tqdm(range(1, args.epochs + 1), desc=f"{dataset_name} training")
     for epoch in epoch_iter:
@@ -422,6 +423,7 @@ def run_single_dataset(args, dataset_name: str, device: torch.device) -> None:
         if val_output.dsc > best_val_dsc:
             best_val_dsc = val_output.dsc
             best_epoch = epoch
+            epochs_without_improvement = 0
             torch.save(
                 {
                     "epoch": epoch,
@@ -434,6 +436,15 @@ def run_single_dataset(args, dataset_name: str, device: torch.device) -> None:
                 },
                 best_ckpt,
             )
+        else:
+            epochs_without_improvement += 1
+
+        if epochs_without_improvement >= args.patience:
+            print(
+                f"[{dataset_name}] Early stopping at epoch {epoch}, "
+                f"best val_dsc={best_val_dsc:.4f} (patience={args.patience})."
+            )
+            break
 
     checkpoint = torch.load(best_ckpt, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -486,10 +497,16 @@ def parse_args():
         help="Datasets to run. Default is all 7 segmentation datasets.",
     )
     parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--eval-batch-size", type=int, default=1)
-    parser.add_argument("--num-workers", type=int, default=4)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--batch-size", type=int, default=3)
+    parser.add_argument(
+        "--eval-batch-size",
+        "--test-batch-size",
+        dest="eval_batch_size",
+        type=int,
+        default=3,
+    )
+    parser.add_argument("--num-workers", type=int, default=6)
+    parser.add_argument("--lr", type=float, default=5e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--image-size", type=int, default=572, help="Input size for U-Net.")
     parser.add_argument("--output-root", type=str, default="./runs_unet")
@@ -516,6 +533,12 @@ def parse_args():
         type=str,
         default="",
         help="Mask suffix when split txt only contains image names, e.g. '_mask'.",
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=30,
+        help="Early stopping patience based on validation DSC.",
     )
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
